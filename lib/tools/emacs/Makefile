@@ -37,6 +37,8 @@ MAN_FILES= \
 	tags.3
 
 EMACS_FILES= \
+	erlang-skels \
+	erlang-skels-old \
 	erlang-start \
 	erlang-eunit \
 	erlang
