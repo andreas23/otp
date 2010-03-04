@@ -1,6 +1,6 @@
 {application, uds_dist,
-   [{description, "SSL socket version 2"},
-    {vsn, "1.0"},
+   [{description, "UNIX Domain Socket distribution"},
+    {vsn, "%VSN%"},
     {modules, [uds_server]},
     {registered, [uds_server]},
     {applications, [kernel, stdlib]},
