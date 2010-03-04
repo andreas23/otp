@@ -1,6 +1,6 @@
 -module(uds).
 
--export([listen/1, connect/1, accept/1, send/2, recv/1, close/1,
+-export([listen/1, connect/1, accept/1, send/2, recv/2, close/1,
 	 get_port/1, get_status_counters/1, set_mode/2, controlling_process/2,
 	 tick/1, get_creation/1]).
 
@@ -37,9 +37,9 @@ send(Port,Data) ->
     ?check_server(),
     command(Port, $S, Data).
 
-recv(Port) ->
+recv(Port,Length) ->
     ?check_server(),
-    command(Port, $R, []).
+    command(Port, $R, ?encode(Length)).
 
 close(Port) ->
     ?check_server(),
@@ -129,7 +129,7 @@ command(Port, Command, Parameters) ->
 		{Port, {data, [Command, $o, $k]}} ->
 		    process_flag(trap_exit,SavedTrapExit),
 		    {ok, Port};
-		{Port, {data, [Command |T]}} ->
+		{Port, {data, T}} ->
 		    process_flag(trap_exit,SavedTrapExit),
 		    {ok, T};
 		{Port, Else} ->

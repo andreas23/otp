@@ -35,7 +35,7 @@
 #include "erl_driver.h"
 
 #define DEBUG
-/*#define HARDDEBUG 1*/
+#define HARDDEBUG 1
 /*
 ** Some constants/macros
 */
@@ -142,6 +142,7 @@ typedef struct uds_data {
     int buffer_pos;           /* Current position in input buffer */
     int header_pos;           /* Where the current header is in the 
 				 input buffer */
+    int total_size;          /* The total number of bytes to read */
     Byte *buffer;            /* The actual input buffer */
 } UdsData;
 
@@ -169,6 +170,8 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen);
 static void do_stop(UdsData *ud, int shutting_down);
 static void do_send(UdsData *ud, char *buff, int bufflen); 
 static void do_recv(UdsData *ud);
+static void do_send_raw(UdsData *ud, char *buff, int bufflen); 
+static void do_recv_raw(UdsData *ud);
 
 static int report_control_error(char **buffer, int buff_len, 
 				char *error_message);
@@ -252,6 +255,7 @@ static ErlDrvData uds_start(ErlDrvPort port, char *buff)
     ud->buffer_size = 0;
     ud->buffer_pos = 0;
     ud->header_pos = 0;
+    ud->total_size = 0;
     ud->buffer = NULL;
     ud->sent = 0;
     ud->received = 0;
@@ -318,6 +322,7 @@ static void uds_command(ErlDrvData handle, char *buff, int bufflen)
 	}
 	uds_command_connect(ud,buff,bufflen);
 	return;
+	/*
     case 'S':
 	if (ud->type != portTypeCommand) {
 	    driver_failure_posix(ud->port, ENOTSUP);
@@ -331,6 +336,22 @@ static void uds_command(ErlDrvData handle, char *buff, int bufflen)
 	    return;
 	}
 	do_recv(ud);
+	return;
+	*/
+    case 'S':
+	if (ud->type != portTypeCommand) {
+	    driver_failure_posix(ud->port, ENOTSUP);
+	    return;
+	}
+	do_send_raw(ud, buff + 1, bufflen - 1);
+	return;
+    case 'R':
+	if (ud->type != portTypeCommand) {
+	    driver_failure_posix(ud->port, ENOTSUP);
+	    return;
+	}
+	ud->total_size = get_packet_length(buff + 1);
+	do_recv_raw(ud);
 	return;
     default:
 	ASSERT(0);
@@ -375,7 +396,7 @@ static void uds_input(ErlDrvData handle, ErlDrvEvent event)
     if (ud->type == portTypeData)
 	DEBUGF(("Passive do_recv"));
 #endif
-    do_recv(ud);
+    do_recv_raw(ud);
 }
 
 static void uds_output(ErlDrvData handle, ErlDrvEvent event)
@@ -514,15 +535,14 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen)
     int length;
     int res;
 
-    str = ALLOC(25);
-    sprintf(str, "erl%d", (int) getpid()); /* A temporary sufficiently 
-					      unique name */
-    do_unlink(str);
+    str = ALLOC(bufflen);
+    memcpy(str, buff + 1, bufflen - 1);
+    str[bufflen - 1] = '\0';
+    strcpy(s_un.sun_path, str);
     s_un.sun_family = AF_UNIX;
-    strcpy(s_un.sun_path, SOCKET_PATH "/");
-    strcat(s_un.sun_path, str);
-    DEBUGF(("Connect own filename: %s", s_un.sun_path));
     length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
+    DEBUGF(("Connect peer filename: %s", s_un.sun_path));
+
     ud->name = str;
     ud->type = portTypeCommand;
     if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
@@ -531,18 +551,6 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen)
 	return;
     }
     ud->fd = fd;
-    if ((res = bind(fd, (struct sockaddr *) &s_un, length)) < 0) {
-	DEBUGF(("bind call failed, errno = %d",errno));
-	driver_failure_posix(ud->port, errno);
-	return;
-    }
-    str = ALLOC(bufflen);
-    memcpy(str, buff + 1, bufflen - 1);
-    str[bufflen - 1] = '\0';
-    strcpy(s_un.sun_path, SOCKET_PATH "/");
-    strcat(s_un.sun_path, str);
-    length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
-    DEBUGF(("Connect peer filename: %s", s_un.sun_path));
     SET_NONBLOCKING(fd);
     if (connect(fd, (struct sockaddr *) &s_un, length) < 0) {
 	if (errno != EINPROGRESS) {
@@ -557,7 +565,7 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen)
 	DEBUGF(("Connect done"));
 	driver_output(ud->port, "Cok", 3);
     }
-    FREE(str);
+    //FREE(str);
 }
 
 static void uds_command_accept(UdsData *ud, char *buff, int bufflen) 
@@ -750,6 +758,47 @@ static void do_send(UdsData *ud, char *buff, int bufflen)
     send_out_queue(ud);
 }
 
+static void do_send_raw(UdsData *ud, char *buff, int bufflen) 
+{
+    char header[4];
+    int written;
+    SysIOVec iov[2];
+    ErlIOVec eio;
+    ErlDrvBinary *binv[] = {NULL,NULL};
+
+    iov[0].iov_base = buff;
+    iov[0].iov_len = bufflen;
+    eio.iov = iov;
+    eio.binv = binv;
+    eio.vsize = 1;
+    eio.size = bufflen;
+    written = 0;
+    if (driver_sizeq(ud->port) == 0) {
+	if ((written = writev(ud->fd, iov, 1)) == eio.size) {
+	    ud->sent += written;
+	    if (ud->type == portTypeCommand) {
+		driver_output(ud->port, "Sok", 3);
+	    }
+	    DEBUGF(("Wrote all %d bytes immediately.",written));
+	    return;
+	} else if (written < 0) {
+	    if (errno != EWOULDBLOCK) {
+		driver_failure_eof(ud->port);
+		return;
+	    } else {
+		written = 0;
+	    }
+	} else {
+	    ud->sent += written;
+	}
+	DEBUGF(("Wrote %d bytes immediately.",written));
+	/* Enqueue remaining */
+    }
+    driver_enqv(ud->port, &eio, written);
+    DEBUGF(("Sending output queue."));
+    send_out_queue(ud);
+}
+
 static void do_recv(UdsData *ud)
 {
     int res;
@@ -784,6 +833,38 @@ static void do_recv(UdsData *ud)
     }
 }
 
+static void do_recv_raw(UdsData *ud)
+{
+    int res;
+    char *ibuf;
+    int read_length;
+    ASSERT_NONBLOCK(ud->fd);
+    DEBUGF(("do_recv_raw called, type = %d", ud->type));
+
+    read_length = ud->total_size + ud->header_pos - ud->buffer_pos;
+
+    for(;;) {
+	if ((res = read_at_least(ud, read_length)) < 0) {
+	    if (res == NORMAL_READ_FAILURE) {
+		DEBUGF(("do_recv_raw normal read failed"));
+		driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
+	    } else {
+		DEBUGF(("do_recv_raw fatal read failed (%d) (%d)",errno, res));
+		driver_failure_eof(ud->port);
+	    }
+	    return;
+	}
+	DEBUGF(("do_recv_raw got package, port type = %d", ud->type));
+	driver_output(ud->port, (char*) ud->buffer + ud->header_pos, ud->total_size);
+	ud->header_pos += read_length;
+	if (ud->type == portTypeCommand) {
+	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
+	    return;
+	} else {
+	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
+	}
+    }
+}
 
 /*
 ** Report control error, helper for error messages from control
@@ -885,6 +966,9 @@ static int buffered_read_package(UdsData *ud, char **result)
 static int read_at_least(UdsData *ud, int num)
 {
     int got;
+    if (num <= 0) {
+        return 0;
+    }
     if (ud->buffer_pos + num > ud->buffer_size) {
 	/* No place in the buffer, try to pack it */
 	if (ud->header_pos > 0) {
