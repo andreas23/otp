@@ -860,7 +860,7 @@ static void do_recv_raw(UdsData *ud)
 	}
 	DEBUGF(("do_recv_raw got package, port type = %d", ud->type));
 	driver_output(ud->port, (char*) ud->buffer + ud->header_pos, ud->total_size);
-	ud->header_pos += read_length;
+	ud->header_pos += ud->total_size;
 	if (ud->type == portTypeCommand) {
 	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
 	    return;
