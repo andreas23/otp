@@ -85,6 +85,9 @@ do {									\
 #define REALLOC(P,X) my_realloc(P,X)
 #define FREE(X) driver_free(X)
 
+#define BUFSTATE(ud) do { DEBUGF(("Buffer state: size %d, pos %d, header %d, total %d", \
+				  ud->buffer_size, ud->buffer_pos, ud->header_pos, ud->total_size)); } while(0) 
+
 #define CHUNK_SIZE 256
 
 #define DIST_MAGIC_RECV_TAG 100
@@ -840,6 +843,7 @@ static void do_recv_raw(UdsData *ud)
     int read_length;
     ASSERT_NONBLOCK(ud->fd);
     DEBUGF(("do_recv_raw called, type = %d", ud->type));
+    BUFSTATE(ud);
 
     read_length = ud->total_size + ud->header_pos - ud->buffer_pos;
 

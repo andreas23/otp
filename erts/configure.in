@@ -4137,5 +4137,6 @@ dnl
   ../lib/orber/c_src/$host/Makefile:../lib/orber/c_src/Makefile.in
   ../lib/runtime_tools/c_src/$host/Makefile:../lib/runtime_tools/c_src/Makefile.in
   ../lib/tools/c_src/$host/Makefile:../lib/tools/c_src/Makefile.in
+  ../lib/uds_dist/c_src/$host/Makefile:../lib/uds_dist/c_src/Makefile.in
   )
 

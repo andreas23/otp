@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 1996-2009. All Rights Reserved.
+# Copyright Ericsson AB 1999-2009. All Rights Reserved.
 # 
 # The contents of this file are subject to the Erlang Public License,
 # Version 1.1, (the "License"); you may not use this file except in
@@ -19,17 +19,20 @@
 include $(ERL_TOP)/make/target.mk
 include $(ERL_TOP)/make/$(TARGET)/otp.mk
 
-# ----------------------------------------------------
-# Common Macros
-# ----------------------------------------------------
-include vsn.mk
-VSN = $(KERNEL_VSN)
+#
+# Macros
+#
 
-SUB_DIRECTORIES = src doc/src
+SUB_DIRECTORIES = src c_src
+
+include vsn.mk
+VSN = $(UDS_DIST_VSN)
 
 SPECIAL_TARGETS = 
 
-# ----------------------------------------------------
+#
 # Default Subdir Targets
-# ----------------------------------------------------
+#
 include $(ERL_TOP)/make/otp_subdir.mk
+
+
